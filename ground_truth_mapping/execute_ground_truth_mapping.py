@@ -29,7 +29,7 @@ def main():
     parser.add_argument('-r', dest='base_run_folder',
                         help='Folder in which the result of each run will be placed.',
                         type=str,
-                        default="~/ds/performance_modelling/output/test_localization/",
+                        default="~/ds/performance_modelling/output/ground_truth_mapping/",
                         required=False)
 
     parser.add_argument('-n', '--num-runs', dest='num_runs',

@@ -5,43 +5,30 @@ import random
 import time
 import traceback
 from collections import defaultdict, deque
-
-# import geometry_msgs
-# import lifecycle_msgs
-import nav_msgs
-import networkx as nx
-import numpy as np
-# import pandas as pd
-import pyquaternion
-import rclpy
-from action_msgs.msg import GoalStatus
-from gazebo_msgs.msg import EntityState
-from gazebo_msgs.srv import SetEntityState
-# from lifecycle_msgs.msg import TransitionEvent
-from nav2_msgs.action import NavigateToPose
-from nav2_msgs.srv import ManageLifecycleNodes
-from nav_msgs.msg import Odometry, Path
-from performance_modelling_py.environment import ground_truth_map_utils
-from rcl_interfaces.srv import GetParameters
-from rclpy.action import ActionClient
-from rclpy.node import Node
-# from geometry_msgs.msg import Twist, PoseWithCovarianceStamped, Pose, Quaternion, PoseStamped
-from geometry_msgs.msg import PoseWithCovarianceStamped, Pose, Quaternion, PoseStamped
-from rclpy.qos import qos_profile_sensor_data, QoSDurabilityPolicy
-# from rclpy.time import Time
-from sensor_msgs.msg import LaserScan
-
-import tf2_ros
-
 import copy
-# import pickle
-# import psutil
-
 import os
 from os import path
+import networkx as nx
+import numpy as np
+import pyquaternion
 
+import rclpy
+from rclpy.qos import qos_profile_sensor_data, QoSDurabilityPolicy
+from rclpy.action import ActionClient
+from rclpy.node import Node
+from rcl_interfaces.srv import GetParameters
+from geometry_msgs.msg import Pose, Quaternion, PoseStamped
+from sensor_msgs.msg import LaserScan
+from action_msgs.msg import GoalStatus
+import nav_msgs
+from nav_msgs.msg import Odometry, Path
+from nav2_msgs.action import NavigateToPose
+from nav2_msgs.srv import ManageLifecycleNodes
+from slam_toolbox.srv import SaveMap
+
+from performance_modelling_py.environment import ground_truth_map_utils
 from performance_modelling_py.utils import backup_file_if_exists, print_info, print_error, nanoseconds_to_seconds
-from std_srvs.srv import Empty
+from std_msgs.msg import String
 
 
 class RunFailException(Exception):
@@ -78,13 +65,9 @@ class LocalizationBenchmarkSupervisor(Node):
         # topics, services, actions, entities and frames names
         scan_topic = self.get_parameter('scan_topic').value
         ground_truth_pose_topic = self.get_parameter('ground_truth_pose_topic').value
-        # estimated_pose_correction_topic = self.get_parameter('estimated_pose_correction_topic').value
-        # initial_pose_topic = self.get_parameter('initial_pose_topic').value
         lifecycle_manager_service = self.get_parameter('lifecycle_manager_service').value
         global_costmap_get_parameters_service = self.get_parameter('global_costmap_get_parameters_service').value
-        pause_physics_service = self.get_parameter('pause_physics_service').value
-        unpause_physics_service = self.get_parameter('unpause_physics_service').value
-        set_entity_state_service = self.get_parameter('set_entity_state_service').value
+        save_map_service = self.get_parameter('save_map_service').value
         navigate_to_pose_action = self.get_parameter('navigate_to_pose_action').value
         self.fixed_frame = self.get_parameter('fixed_frame').value
         self.robot_entity_name = self.get_parameter('robot_entity_name').value
@@ -92,29 +75,17 @@ class LocalizationBenchmarkSupervisor(Node):
         # file system paths
         self.run_output_folder = self.get_parameter('run_output_folder').value
         self.benchmark_data_folder = path.join(self.run_output_folder, "benchmark_data")
-        self.ps_output_folder = path.join(self.benchmark_data_folder, "ps_snapshots")
         self.ground_truth_map_info_path = self.get_parameter("ground_truth_map_info_path").value
+        self.map_file_path = path.join(self.benchmark_data_folder, "map")
 
         # run parameters
         run_timeout = self.get_parameter('run_timeout').value
-        # ps_snapshot_period = self.get_parameter('ps_snapshot_period').value
-        # write_estimated_poses_period = self.get_parameter('write_estimated_poses_period').value
-        # self.ps_pid_father = self.get_parameter('pid_father').value
-        # self.ps_processes = psutil.Process(self.ps_pid_father).children(recursive=True)  # list of processes children of the benchmark script, i.e., all ros nodes of the benchmark including this one
         self.ground_truth_map = ground_truth_map_utils.GroundTruthMap(self.ground_truth_map_info_path)
-        # self.initial_pose_covariance_matrix = np.zeros((6, 6), dtype=float)
-        # self.initial_pose_covariance_matrix[0, 0] = self.get_parameter('initial_pose_std_xy').value**2
-        # self.initial_pose_covariance_matrix[1, 1] = self.get_parameter('initial_pose_std_xy').value**2
-        # self.initial_pose_covariance_matrix[5, 5] = self.get_parameter('initial_pose_std_theta').value**2
         self.goal_tolerance = self.get_parameter('goal_tolerance').value
 
         # run variables
-        self.run_started = False
-        self.terminate = False
-        self.ps_snapshot_count = 0
         self.received_first_scan = False
         self.latest_ground_truth_pose_msg = None
-        self.localization_node_activated = False
         self.robot_radius = None
         self.initial_pose = None
         self.traversal_path_poses = None
@@ -129,49 +100,26 @@ class LocalizationBenchmarkSupervisor(Node):
         if not path.exists(self.benchmark_data_folder):
             os.makedirs(self.benchmark_data_folder)
 
-        if not path.exists(self.ps_output_folder):
-            os.makedirs(self.ps_output_folder)
-
         # file paths for benchmark data
-        # self.estimated_poses_file_path = path.join(self.benchmark_data_folder, "estimated_poses.csv")
-        # self.estimated_correction_poses_file_path = path.join(self.benchmark_data_folder, "estimated_correction_poses.csv")
-        # self.ground_truth_poses_file_path = path.join(self.benchmark_data_folder, "ground_truth_poses.csv")
-        # self.scans_file_path = path.join(self.benchmark_data_folder, "scans.csv")
         self.run_events_file_path = path.join(self.benchmark_data_folder, "run_events.csv")
         self.init_run_events_file()
 
-        # pandas dataframes for benchmark data
-        # self.estimated_poses_df = pd.DataFrame(columns=['t', 'x', 'y', 'theta'])
-        # self.estimated_correction_poses_df = pd.DataFrame(columns=['t', 'x', 'y', 'theta', 'cov_x_x', 'cov_x_y', 'cov_y_y', 'cov_theta_theta'])
-        # self.ground_truth_poses_df = pd.DataFrame(columns=['t', 'x', 'y', 'theta', 'v_x', 'v_y', 'v_theta'])
-
         # setup timers
         self.create_timer(run_timeout, self.run_timeout_callback)
-        # self.create_timer(ps_snapshot_period, self.ps_snapshot_timer_callback)
-        # self.create_timer(write_estimated_poses_period, self.write_estimated_pose_timer_callback)
 
         # setup service clients
         self.lifecycle_manager_service_client = self.create_client(ManageLifecycleNodes, lifecycle_manager_service)
         self.global_costmap_get_parameters_service_client = self.create_client(GetParameters, global_costmap_get_parameters_service)
-        self.pause_physics_service_client = self.create_client(Empty, pause_physics_service)
-        self.unpause_physics_service_client = self.create_client(Empty, unpause_physics_service)
-        self.set_entity_state_service_client = self.create_client(SetEntityState, set_entity_state_service)
-
-        # setup buffers
-        self.tf_buffer = tf2_ros.Buffer()
-        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+        self.save_map_service_client = self.create_client(SaveMap, save_map_service)
 
         # setup publishers
-        # self.initial_pose_publisher = self.create_publisher(PoseWithCovarianceStamped, initial_pose_topic, 1)
         traversal_path_publisher_qos_profile = copy.copy(qos_profile_sensor_data)
         traversal_path_publisher_qos_profile.durability = QoSDurabilityPolicy.TRANSIENT_LOCAL
         self.traversal_path_publisher = self.create_publisher(Path, "~/traversal_path", traversal_path_publisher_qos_profile)
 
         # setup subscribers
         self.create_subscription(LaserScan, scan_topic, self.scan_callback, qos_profile_sensor_data)
-        # self.create_subscription(PoseWithCovarianceStamped, estimated_pose_correction_topic, self.estimated_pose_correction_callback, qos_profile_sensor_data)
         self.create_subscription(Odometry, ground_truth_pose_topic, self.ground_truth_pose_callback, qos_profile_sensor_data)
-        # self.localization_node_transition_event_subscriber = self.create_subscription(TransitionEvent, localization_node_transition_event_topic, self.localization_node_transition_event_callback, qos_profile_sensor_data)
 
         # setup action clients
         self.navigate_to_pose_action_client = ActionClient(self, NavigateToPose, navigate_to_pose_action)
@@ -250,34 +198,7 @@ class LocalizationBenchmarkSupervisor(Node):
             traversal_path_msg.poses.append(traversal_pose_stamped)
         self.traversal_path_publisher.publish(traversal_path_msg)
 
-        # pop the first pose from traversal_path_poses and set it as initial pose
-        # self.initial_pose = PoseWithCovarianceStamped()
-        # self.initial_pose.header.frame_id = self.fixed_frame
-        # self.initial_pose.header.stamp = self.get_clock().now().to_msg()
-        # self.initial_pose.pose.pose = self.traversal_path_poses.popleft()
-        # self.initial_pose.pose.covariance = list(self.initial_pose_covariance_matrix.flat)
-
         self.num_goals = len(self.traversal_path_poses)
-
-        # # set the position of the robot in the simulator
-        # self.call_service(self.pause_physics_service_client, Empty.Request())
-        # print_info("called pause_physics_service")
-        # time.sleep(1.0)
-        #
-        # robot_entity_state = EntityState(
-        #     name=self.robot_entity_name,
-        #     pose=self.initial_pose.pose.pose
-        # )
-        # set_entity_state_response = self.call_service(self.set_entity_state_service_client, SetEntityState.Request(state=robot_entity_state))
-        # if not set_entity_state_response.success:
-        #     self.write_event(self.get_clock().now(), 'failed_to_set_entity_state')
-        #     raise RunFailException("could not set robot entity state")
-        # print_info("called set_entity_state_service")
-        # time.sleep(1.0)
-        #
-        # self.call_service(self.unpause_physics_service_client, Empty.Request())
-        # print_info("called unpause_physics_service")
-        # time.sleep(1.0)
 
         # ask lifecycle_manager to startup all its managed nodes
         startup_request = ManageLifecycleNodes.Request(command=ManageLifecycleNodes.Request.STARTUP)
@@ -288,7 +209,6 @@ class LocalizationBenchmarkSupervisor(Node):
             raise RunFailException("lifecycle manager could not startup nodes")
 
         self.write_event(self.get_clock().now(), 'run_start')
-        self.run_started = True
 
         self.send_goal()
 
@@ -325,11 +245,8 @@ class LocalizationBenchmarkSupervisor(Node):
     def end_run(self):
         """
         This function is called after the run has completed, whether the run finished correctly, or there was an exception.
-        The only case in which this function is not called is if an exception was raised from LocalizationBenchmarkSupervisor.__init__
+        The only case in which this function is not called is if an exception was raised from self.__init__
         """
-        # self.estimated_poses_df.to_csv(self.estimated_poses_file_path, index=False)
-        # self.estimated_correction_poses_df.to_csv(self.estimated_correction_poses_file_path, index=False)
-        # self.ground_truth_poses_df.to_csv(self.ground_truth_poses_file_path, index=False)
         pass
 
     def goal_response_callback(self, future):
@@ -372,20 +289,15 @@ class LocalizationBenchmarkSupervisor(Node):
 
         # if all goals have been sent end the run, otherwise send the next goal
         if len(self.traversal_path_poses) == 0:
-            self.write_event(self.get_clock().now(), 'run_completed')
-            rclpy.shutdown()
+            self.save_map_and_finish_run()
         else:
             self.send_goal()
 
-    # def localization_node_transition_event_callback(self, transition_event_msg: lifecycle_msgs.msg.TransitionEvent):
-    #     # send the initial pose as soon as the localization node activates the first time
-    #     if transition_event_msg.goal_state.label == 'active' and not self.localization_node_activated:
-    #         if self.initial_pose is None:
-    #             print_error("initial_pose is still None")
-    #             return
-    #
-    #         self.localization_node_activated = True
-    #         self.initial_pose_publisher.publish(self.initial_pose)
+    def save_map_and_finish_run(self):
+        self.write_event(self.get_clock().now(), 'save_map_request_sent')
+        self.call_service(self.save_map_service_client, SaveMap.Request(name=String(data=self.map_file_path)))
+        self.write_event(self.get_clock().now(), 'run_completed')
+        rclpy.shutdown()
 
     def run_timeout_callback(self):
         print_error("terminating supervisor due to timeout, terminating run")
@@ -395,98 +307,9 @@ class LocalizationBenchmarkSupervisor(Node):
 
     def scan_callback(self, _):
         self.received_first_scan = True
-        # if not self.run_started:
-        #     return
-        #
-        # msg_time = nanoseconds_to_seconds(laser_scan_msg.header.stamp.nanosec) + float(laser_scan_msg.header.stamp.sec)
-        # with open(self.scans_file_path, 'a') as scans_file:
-        #     scans_file.write("{t}, {angle_min}, {angle_max}, {angle_increment}, {range_min}, {range_max}, {ranges}\n".format(
-        #         t=msg_time,
-        #         angle_min=laser_scan_msg.angle_min,
-        #         angle_max=laser_scan_msg.angle_max,
-        #         angle_increment=laser_scan_msg.angle_increment,
-        #         range_min=laser_scan_msg.range_min,
-        #         range_max=laser_scan_msg.range_max,
-        #         ranges=', '.join(map(str, laser_scan_msg.ranges))))
-
-    # def write_estimated_pose_timer_callback(self):
-    #     try:
-    #         transform_msg = self.tf_buffer.lookup_transform('map', 'base_link', Time())
-    #         orientation = transform_msg.transform.rotation
-    #         theta, _, _ = pyquaternion.Quaternion(x=orientation.x, y=orientation.y, z=orientation.z, w=orientation.w).yaw_pitch_roll
-    #
-    #         self.estimated_poses_df = self.estimated_poses_df.append({
-    #             't': nanoseconds_to_seconds(Time.from_msg(transform_msg.header.stamp).nanoseconds),
-    #             'x': transform_msg.transform.translation.x,
-    #             'y': transform_msg.transform.translation.y,
-    #             'theta': theta
-    #         }, ignore_index=True)
-    #
-    #     except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException):
-    #         pass
-
-    # def estimated_pose_correction_callback(self, pose_with_covariance_msg: geometry_msgs.msg.PoseWithCovarianceStamped):
-    #     if not self.run_started:
-    #         return
-    #
-    #     orientation = pose_with_covariance_msg.pose.pose.orientation
-    #     theta, _, _ = pyquaternion.Quaternion(x=orientation.x, y=orientation.y, z=orientation.z, w=orientation.w).yaw_pitch_roll
-    #     covariance_mat = np.array(pose_with_covariance_msg.pose.covariance).reshape(6, 6)
-    #
-    #     self.estimated_correction_poses_df = self.estimated_correction_poses_df.append({
-    #         't': nanoseconds_to_seconds(Time.from_msg(pose_with_covariance_msg.header.stamp).nanoseconds),
-    #         'x': pose_with_covariance_msg.pose.pose.position.x,
-    #         'y': pose_with_covariance_msg.pose.pose.position.y,
-    #         'theta': theta,
-    #         'cov_x_x': covariance_mat[0, 0],
-    #         'cov_x_y': covariance_mat[0, 1],
-    #         'cov_y_y': covariance_mat[1, 1],
-    #         'cov_theta_theta': covariance_mat[5, 5]
-    #     }, ignore_index=True)
 
     def ground_truth_pose_callback(self, odometry_msg: nav_msgs.msg.Odometry):
         self.latest_ground_truth_pose_msg = odometry_msg
-        # if not self.run_started:
-        #     return
-        #
-        # orientation = odometry_msg.pose.pose.orientation
-        # theta, _, _ = pyquaternion.Quaternion(x=orientation.x, y=orientation.y, z=orientation.z, w=orientation.w).yaw_pitch_roll
-        #
-        # self.ground_truth_poses_df = self.ground_truth_poses_df.append({
-        #     't': nanoseconds_to_seconds(Time.from_msg(odometry_msg.header.stamp).nanoseconds),
-        #     'x': odometry_msg.pose.pose.position.x,
-        #     'y': odometry_msg.pose.pose.position.y,
-        #     'theta': theta,
-        #     'v_x': odometry_msg.twist.twist.linear.x,
-        #     'v_y': odometry_msg.twist.twist.linear.y,
-        #     'v_theta': odometry_msg.twist.twist.angular.z,
-        # }, ignore_index=True)
-
-    # def ps_snapshot_timer_callback(self):
-    #     ps_snapshot_file_path = path.join(self.ps_output_folder, "ps_{i:08d}.pkl".format(i=self.ps_snapshot_count))
-    #
-    #     processes_dicts_list = list()
-    #     for process in self.ps_processes:
-    #         try:
-    #             process_copy = copy.deepcopy(process.as_dict())  # get all information about the process
-    #         except psutil.NoSuchProcess:  # processes may have died, causing this exception to be raised from psutil.Process.as_dict
-    #             continue
-    #         try:
-    #             # delete uninteresting values
-    #             del process_copy['connections']
-    #             del process_copy['memory_maps']
-    #             del process_copy['environ']
-    #
-    #             processes_dicts_list.append(process_copy)
-    #         except KeyError:
-    #             pass
-    #     try:
-    #         with open(ps_snapshot_file_path, 'wb') as ps_snapshot_file:
-    #             pickle.dump(processes_dicts_list, ps_snapshot_file)
-    #     except TypeError:
-    #         print_error(traceback.format_exc())
-    #
-    #     self.ps_snapshot_count += 1
 
     def init_run_events_file(self):
         backup_file_if_exists(self.run_events_file_path)
