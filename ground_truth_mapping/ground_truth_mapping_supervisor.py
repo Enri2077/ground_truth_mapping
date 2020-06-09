@@ -24,7 +24,7 @@ import nav_msgs
 from nav_msgs.msg import Odometry, Path
 from nav2_msgs.action import NavigateToPose
 from nav2_msgs.srv import ManageLifecycleNodes
-from slam_toolbox.srv import SaveMap
+from slam_toolbox.srv import SaveMap, SerializePoseGraph
 
 from performance_modelling_py.environment import ground_truth_map_utils
 from performance_modelling_py.utils import backup_file_if_exists, print_info, print_error, nanoseconds_to_seconds
@@ -68,6 +68,7 @@ class LocalizationBenchmarkSupervisor(Node):
         lifecycle_manager_service = self.get_parameter('lifecycle_manager_service').value
         global_costmap_get_parameters_service = self.get_parameter('global_costmap_get_parameters_service').value
         save_map_service = self.get_parameter('save_map_service').value
+        serialize_map_service = self.get_parameter('serialize_map_service').value
         navigate_to_pose_action = self.get_parameter('navigate_to_pose_action').value
         self.fixed_frame = self.get_parameter('fixed_frame').value
         self.robot_entity_name = self.get_parameter('robot_entity_name').value
@@ -77,6 +78,7 @@ class LocalizationBenchmarkSupervisor(Node):
         self.benchmark_data_folder = path.join(self.run_output_folder, "benchmark_data")
         self.ground_truth_map_info_path = self.get_parameter("ground_truth_map_info_path").value
         self.map_file_path = path.join(self.benchmark_data_folder, "map")
+        self.pose_graph_file_path = path.join(self.benchmark_data_folder, "slam_toolbox_pose_graph")
 
         # run parameters
         run_timeout = self.get_parameter('run_timeout').value
@@ -111,6 +113,7 @@ class LocalizationBenchmarkSupervisor(Node):
         self.lifecycle_manager_service_client = self.create_client(ManageLifecycleNodes, lifecycle_manager_service)
         self.global_costmap_get_parameters_service_client = self.create_client(GetParameters, global_costmap_get_parameters_service)
         self.save_map_service_client = self.create_client(SaveMap, save_map_service)
+        self.serialize_map_client = self.create_client(SerializePoseGraph, serialize_map_service)
 
         # setup publishers
         traversal_path_publisher_qos_profile = copy.copy(qos_profile_sensor_data)
@@ -296,6 +299,7 @@ class LocalizationBenchmarkSupervisor(Node):
     def save_map_and_finish_run(self):
         self.write_event(self.get_clock().now(), 'save_map_request_sent')
         self.call_service(self.save_map_service_client, SaveMap.Request(name=String(data=self.map_file_path)))
+        self.call_service(self.serialize_map_client, SerializePoseGraph.Request(filename=self.pose_graph_file_path))
         self.write_event(self.get_clock().now(), 'run_completed')
         rclpy.shutdown()
 

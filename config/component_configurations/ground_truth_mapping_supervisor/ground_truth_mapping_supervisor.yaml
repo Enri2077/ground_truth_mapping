@@ -17,6 +17,7 @@ ground_truth_mapping_supervisor:
     lifecycle_manager_service: /lifecycle_manager/manage_nodes
     global_costmap_get_parameters_service: /local_costmap/local_costmap/get_parameters
     save_map_service: /save_map
+    serialize_map_service: /serialize_map
 
     # action names
     navigate_to_pose_action: /NavigateToPose
