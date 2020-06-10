@@ -26,4 +26,4 @@ ground_truth_mapping_supervisor:
     fixed_frame: map
 
     # gazebo entity names
-    robot_entity_name: robot  # base_footprint
+    robot_entity_name: robot

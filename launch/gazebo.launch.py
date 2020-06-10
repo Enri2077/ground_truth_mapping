@@ -25,9 +25,6 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'robot_gt_urdf_file',
             description='Full path to robot urdf model file to load'),
-        DeclareLaunchArgument(
-            'robot_realistic_urdf_file',
-            description='Full path to robot urdf model file to load'),
         SetEnvironmentVariable('RCUTILS_CONSOLE_STDOUT_LINE_BUFFERED', '1'),
         SetEnvironmentVariable('GAZEBO_MODEL_PATH', LaunchConfiguration('gazebo_model_path_env_var')),
         SetEnvironmentVariable('GAZEBO_PLUGIN_PATH', LaunchConfiguration('gazebo_plugin_path_env_var')),
@@ -45,20 +42,6 @@ def generate_launch_description():
             output='log',
             parameters=[{'use_sim_time': True}],
             arguments=[LaunchConfiguration('robot_gt_urdf_file')]),
-        # Node(
-        #     package='tf2_ros',
-        #     node_executable='static_transform_publisher',
-        #     node_name='gt_odom_static_transform_publisher',
-        #     output='log',
-        #     parameters=[{'use_sim_time': True}],
-        #     arguments=["0", "0", "0", "0", "0", "0", "map", "odom"]),  # odom is actually the ground truth, because currently (Eloquent) odom and base_link are hardcoded in the navigation stack (recoveries and controller) >:C
-        # Node(
-        #     package='robot_state_publisher',
-        #     node_executable='robot_state_publisher',
-        #     node_name='robot_state_publisher_realistic',
-        #     output='log',
-        #     parameters=[{'use_sim_time': True}],
-        #     arguments=[LaunchConfiguration('robot_realistic_urdf_file')]),
     ])
 
     return ld

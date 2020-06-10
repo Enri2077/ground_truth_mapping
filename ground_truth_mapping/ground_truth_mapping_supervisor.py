@@ -26,7 +26,7 @@ from nav2_msgs.action import NavigateToPose
 from nav2_msgs.srv import ManageLifecycleNodes
 from slam_toolbox.srv import SaveMap, SerializePoseGraph
 
-from performance_modelling_py.environment import ground_truth_map_utils
+from performance_modelling_py.environment import ground_truth_map
 from performance_modelling_py.utils import backup_file_if_exists, print_info, print_error, nanoseconds_to_seconds
 from std_msgs.msg import String
 
@@ -82,7 +82,7 @@ class LocalizationBenchmarkSupervisor(Node):
 
         # run parameters
         run_timeout = self.get_parameter('run_timeout').value
-        self.ground_truth_map = ground_truth_map_utils.GroundTruthMap(self.ground_truth_map_info_path)
+        self.ground_truth_map = ground_truth_map.GroundTruthMap(self.ground_truth_map_info_path)
         self.goal_tolerance = self.get_parameter('goal_tolerance').value
 
         # run variables
@@ -206,7 +206,6 @@ class LocalizationBenchmarkSupervisor(Node):
         # ask lifecycle_manager to startup all its managed nodes
         startup_request = ManageLifecycleNodes.Request(command=ManageLifecycleNodes.Request.STARTUP)
         startup_response: ManageLifecycleNodes.Response = self.call_service(self.lifecycle_manager_service_client, startup_request)
-        print_info("called lifecycle_manager_service_client", startup_response)
         if not startup_response.success:
             self.write_event(self.get_clock().now(), 'failed_to_startup_nodes')
             raise RunFailException("lifecycle manager could not startup nodes")

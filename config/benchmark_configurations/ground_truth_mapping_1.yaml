@@ -1,13 +1,13 @@
 components_configurations_folder: ~/w/ros2_ws/src/ground_truth_mapping/config/component_configurations
-gazebo_model_path_env_var: [~/w/ros2_ws/src/turtlebot3_simulations/turtlebot3_gazebo/models/, ~/ds/performance_modelling/dataset_v3]
+gazebo_model_path_env_var: [~/w/ros2_ws/src/turtlebot3_simulations/turtlebot3_gazebo/models/]
 gazebo_plugin_path_env_var: [~/w/ros2_ws/build/gazebo_plugins/]
 
 components_configuration:
   supervisor: ground_truth_mapping_supervisor/ground_truth_mapping_supervisor.yaml
+  slam_toolbox_slam: slam_toolbox_slam/mapper_params_online_async.yaml
   nav2_navigation: nav2_navigation/nav2_navigation_1.yaml
   rviz: rviz/nav2_default_view.rviz
 
 combinatorial_parameters:
-  beta: [[0.0175, 0.0175, 0.005, 0.005]]
   laser_scan_max_range: [60.0]
   laser_scan_fov_deg: [270]
