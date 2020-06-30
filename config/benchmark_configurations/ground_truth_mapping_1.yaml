@@ -1,13 +1,15 @@
-components_configurations_folder: ~/w/ros2_ws/src/ground_truth_mapping/config/component_configurations
-gazebo_model_path_env_var: [~/w/ros2_ws/src/turtlebot3_simulations/turtlebot3_gazebo/models/]
-gazebo_plugin_path_env_var: [~/w/ros2_ws/build/gazebo_plugins/]
+components_configurations_folder: ~/w/catkin_ws/src/ground_truth_mapping/config/component_configurations
+gazebo_model_path_env_var: [~/w/catkin_ws/src/turtlebot3_simulations/turtlebot3_gazebo/models/]
+gazebo_plugin_path_env_var: [~/w/catkin_ws/build/gazebo_plugins/]
 
 components_configuration:
   supervisor: ground_truth_mapping_supervisor/ground_truth_mapping_supervisor.yaml
-  slam_toolbox_slam: slam_toolbox_slam/mapper_params_online_async.yaml
-  nav2_navigation: nav2_navigation/nav2_navigation_1.yaml
+  slam_toolbox: slam_toolbox/mapper_params_online_async.yaml
+  move_base: move_base/move_base_tb3.yaml
   rviz: rviz/nav2_default_view.rviz
 
 combinatorial_parameters:
   laser_scan_max_range: [60.0]
-  laser_scan_fov_deg: [270]
+  laser_scan_fov_deg: [359]
+  map_resolution: [0.025, 0.05, 0.1]
+
