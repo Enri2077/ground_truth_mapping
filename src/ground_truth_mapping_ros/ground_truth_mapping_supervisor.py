@@ -14,8 +14,9 @@ import pyquaternion
 import rospy
 from actionlib import SimpleActionClient
 from actionlib_msgs.msg import GoalStatus
+from gazebo_msgs.msg import ModelState
 from gazebo_msgs.srv import SetModelState
-from geometry_msgs.msg import Pose, Quaternion, PoseStamped
+from geometry_msgs.msg import Pose, Quaternion, PoseStamped, PoseWithCovarianceStamped
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry, Path
@@ -93,7 +94,7 @@ class GroundTruthMappingSupervisor:
         self.goal_succeeded_count = 0
         self.goal_failed_count = 0
         self.goal_rejected_count = 0
-        # self.initial_pose = None
+        self.initial_pose = None
 
         # prepare folder structure
         if not path.exists(self.benchmark_data_folder):
@@ -188,7 +189,46 @@ class GroundTruthMappingSupervisor:
             traversal_path_msg.poses.append(traversal_pose_stamped)
         self.traversal_path_publisher.publish(traversal_path_msg)
 
+        # pop the first pose from traversal_path_poses and set it as initial pose
+        self.initial_pose = PoseWithCovarianceStamped()
+        self.initial_pose.header.frame_id = self.fixed_frame
+        self.initial_pose.header.stamp = rospy.Time.now()
+        self.initial_pose.pose.pose = self.traversal_path_poses.popleft()
+        # self.initial_pose.pose.covariance = list(self.initial_pose_covariance_matrix.flat)
+
         self.num_goals = len(self.traversal_path_poses)
+
+        # set the position of the robot in the simulator
+        try:
+            self.pause_physics_service_client.wait_for_service(5.0)
+        except rospy.ROSException:
+            raise RunFailException("pause_physics_service_client unavailable")
+        self.pause_physics_service_client.call()
+        print_info("called pause_physics_service")
+        time.sleep(1.0)
+
+        robot_entity_state = ModelState(
+            model_name=self.robot_entity_name,
+            pose=self.initial_pose.pose.pose
+        )
+        try:
+            self.set_entity_state_service_client.wait_for_service(5.0)
+        except rospy.ROSException:
+            raise RunFailException("set_entity_state_service_client unavailable")
+        set_entity_state_response = self.set_entity_state_service_client.call(robot_entity_state)
+        if not set_entity_state_response.success:
+            self.write_event('failed_to_set_entity_state')
+            raise RunFailException("could not set robot entity state")
+        print_info("called set_entity_state_service")
+        time.sleep(1.0)
+
+        try:
+            self.unpause_physics_service_client.wait_for_service(5.0)
+        except rospy.ROSException:
+            raise RunFailException("unpause_physics_service_client unavailable")
+        self.unpause_physics_service_client.call()
+        print_info("called unpause_physics_service")
+        time.sleep(5.0)
 
         self.write_event('run_start')
 
