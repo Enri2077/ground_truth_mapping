@@ -1,3 +1,4 @@
 ground_truth_mapping/__pycache__
 launch/__pycache__/
 **.rviz
+*.pyc
