@@ -76,8 +76,8 @@ class GroundTruthMappingSupervisor:
         self.run_output_folder = rospy.get_param('~run_output_folder')
         self.benchmark_data_folder = path.join(self.run_output_folder, "benchmark_data")
         self.ground_truth_map_info_path = rospy.get_param('~ground_truth_map_info_path')
-        self.map_file_path = path.join(self.benchmark_data_folder, "map")
-        self.pose_graph_file_path = path.join(self.benchmark_data_folder, "slam_toolbox_pose_graph")
+        self.output_map_file_path = rospy.get_param('~output_map_file_path')  # path.join(self.benchmark_data_folder, "map")
+        self.output_pose_graph_file_path = rospy.get_param('~output_pose_graph_file_path')  # path.join(self.benchmark_data_folder, "slam_toolbox_pose_graph")
 
         # run parameters
         run_timeout = rospy.get_param('~run_timeout')
@@ -272,8 +272,8 @@ class GroundTruthMappingSupervisor:
 
     def save_map(self):
         print_info("sending save map request")
-        self.save_map_service_client.call(SaveMapRequest(name=String(data=self.map_file_path)))
-        self.serialize_map_client.call(SerializePoseGraphRequest(filename=self.pose_graph_file_path))
+        self.save_map_service_client.call(SaveMapRequest(name=String(data=self.output_map_file_path)))
+        self.serialize_map_client.call(SerializePoseGraphRequest(filename=self.output_pose_graph_file_path))
         self.write_event('save_map_request_sent')
 
     def run_timeout_callback(self, _):

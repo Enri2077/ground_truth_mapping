@@ -21,7 +21,6 @@ class BenchmarkRun(object):
 
         # run configuration
         self.run_id = run_id
-        self.run_output_folder = run_output_folder
         self.benchmark_log_path = benchmark_log_path
         self.run_parameters = parameters_combination_dict
         self.benchmark_configuration = benchmark_configuration_dict
@@ -31,6 +30,12 @@ class BenchmarkRun(object):
         # environment parameters
         self.environment_folder = environment_folder
         self.map_info_file_path = path.join(environment_folder, "data", "map.yaml")
+        laser_scan_max_range = self.run_parameters['laser_scan_max_range']
+        laser_scan_fov_deg = self.run_parameters['laser_scan_fov_deg']
+        laser_scan_fov_rad = laser_scan_fov_deg*np.pi/180
+        map_resolution = self.run_parameters['map_resolution']
+        self.run_output_folder = path.join(run_output_folder, "res_{res}_fov_{fov}_max_range_{max_range}".format(res=map_resolution, fov=laser_scan_fov_deg, max_range=laser_scan_max_range))
+
         self.gazebo_model_path_env_var = ":".join(map(
             lambda p: path.expanduser(p),
             self.benchmark_configuration['gazebo_model_path_env_var'] + [path.dirname(path.abspath(self.environment_folder)), self.run_output_folder]
@@ -39,10 +44,6 @@ class BenchmarkRun(object):
             lambda p: path.expanduser(p),
             self.benchmark_configuration['gazebo_plugin_path_env_var']
         ))
-        laser_scan_max_range = self.run_parameters['laser_scan_max_range']
-        laser_scan_fov_deg = self.run_parameters['laser_scan_fov_deg']
-        laser_scan_fov_rad = laser_scan_fov_deg*np.pi/180
-        map_resolution = self.run_parameters['map_resolution']
 
         # run variables
         self.aborted = False
@@ -51,8 +52,10 @@ class BenchmarkRun(object):
         run_configuration_path = path.join(self.run_output_folder, "components_configuration")
         run_info_file_path = path.join(self.run_output_folder, "run_info.yaml")
         backup_file_if_exists(self.run_output_folder)
-        os.mkdir(self.run_output_folder)
+        os.makedirs(self.run_output_folder)
         os.mkdir(run_configuration_path)
+        output_map_file_path = path.join(self.run_output_folder, "map")
+        output_pose_graph_file_path = path.join(self.run_output_folder, "pose_graph")
 
         # components original configuration paths
         components_configurations_folder = path.expanduser(self.benchmark_configuration['components_configurations_folder'])
@@ -90,6 +93,8 @@ class BenchmarkRun(object):
             supervisor_configuration = yaml.load(supervisor_configuration_file)
         supervisor_configuration['run_output_folder'] = self.run_output_folder
         supervisor_configuration['ground_truth_map_info_path'] = self.map_info_file_path
+        supervisor_configuration['output_map_file_path'] = output_map_file_path
+        supervisor_configuration['output_pose_graph_file_path'] = output_pose_graph_file_path
         if not path.exists(path.dirname(self.supervisor_configuration_path)):
             os.makedirs(path.dirname(self.supervisor_configuration_path))
         with open(self.supervisor_configuration_path, 'w') as supervisor_configuration_file:
@@ -186,8 +191,8 @@ class BenchmarkRun(object):
             'gazebo_world_model': gazebo_world_model_relative_path,
             'gazebo_robot_model_sdf': gazebo_robot_model_sdf_relative_path,
             'gazebo_robot_model_config': gazebo_robot_model_config_relative_path,
-            'robot_gt_urdf': robot_gt_mb_urdf_relative_path,
-            'robot_realistic_urdf': robot_gt_st_urdf_relative_path,
+            'robot_gt_mb_urdf': robot_gt_mb_urdf_relative_path,
+            'robot_gt_st_urdf': robot_gt_st_urdf_relative_path,
         }
 
         with open(run_info_file_path, 'w') as run_info_file:
