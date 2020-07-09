@@ -72,8 +72,8 @@ class BenchmarkRun(object):
         gazebo_world_model_relative_path = path.join("components_configuration", "gazebo", "gazebo_environment.model")
         gazebo_robot_model_config_relative_path = path.join("components_configuration", "gazebo", "robot", "model.config")
         gazebo_robot_model_sdf_relative_path = path.join("components_configuration", "gazebo", "robot", "model.sdf")
-        robot_gt_urdf_relative_path = path.join("components_configuration", "gazebo", "robot_gt.urdf")
-        robot_realistic_urdf_relative_path = path.join("components_configuration", "gazebo", "robot_realistic.urdf")
+        robot_gt_mb_urdf_relative_path = path.join("components_configuration", "gazebo", "robot_gt_mb.urdf")
+        robot_gt_st_urdf_relative_path = path.join("components_configuration", "gazebo", "robot_gt_st.urdf")
 
         # components configuration paths in run folder
         self.supervisor_configuration_path = path.join(self.run_output_folder, supervisor_configuration_relative_path)
@@ -82,8 +82,8 @@ class BenchmarkRun(object):
         self.gazebo_world_model_path = path.join(self.run_output_folder, gazebo_world_model_relative_path)
         gazebo_robot_model_config_path = path.join(self.run_output_folder, gazebo_robot_model_config_relative_path)
         gazebo_robot_model_sdf_path = path.join(self.run_output_folder, gazebo_robot_model_sdf_relative_path)
-        self.robot_gt_urdf_path = path.join(self.run_output_folder, robot_gt_urdf_relative_path)
-        self.robot_realistic_urdf_path = path.join(self.run_output_folder, robot_realistic_urdf_relative_path)
+        self.robot_gt_mb_urdf_path = path.join(self.run_output_folder, robot_gt_mb_urdf_relative_path)
+        self.robot_gt_st_urdf_path = path.join(self.run_output_folder, robot_gt_st_urdf_relative_path)
 
         # copy the configuration of the supervisor to the run folder and update its parameters
         with open(original_supervisor_configuration_path) as supervisor_configuration_file:
@@ -120,16 +120,24 @@ class BenchmarkRun(object):
         # copy the configuration of the gazebo robot sdf model to the run folder and update its parameters
         gazebo_robot_model_sdf_tree = et.parse(original_gazebo_robot_model_sdf_path)
         gazebo_robot_model_sdf_root = gazebo_robot_model_sdf_tree.getroot()
+        # realistic sensor, for slam_toolbox (slam_toolbox needs some noise in the lidar to make a decent map)
         gazebo_robot_model_sdf_root.findall(".//sensor[@name='lidar_sensor']/ray/scan/horizontal/samples")[0].text = str(int(laser_scan_fov_deg))
         gazebo_robot_model_sdf_root.findall(".//sensor[@name='lidar_sensor']/ray/scan/horizontal/min_angle")[0].text = str(float(-laser_scan_fov_rad/2))
         gazebo_robot_model_sdf_root.findall(".//sensor[@name='lidar_sensor']/ray/scan/horizontal/max_angle")[0].text = str(float(+laser_scan_fov_rad/2))
         gazebo_robot_model_sdf_root.findall(".//sensor[@name='lidar_sensor']/ray/range/max")[0].text = str(float(laser_scan_max_range))
-        gazebo_robot_model_sdf_root.findall(".//sensor[@name='lidar_sensor']/plugin[@name='turtlebot3_laserscan_realistic']/frameName")[0].text = "base_scan_gt"
-        gazebo_robot_model_sdf_root.findall(".//plugin[@name='turtlebot3_diff_drive']/odometryTopic")[0].text = "odom_realistic"
-        gazebo_robot_model_sdf_root.findall(".//plugin[@name='turtlebot3_diff_drive']/odometryFrame")[0].text = "odom_realistic"
-        gazebo_robot_model_sdf_root.findall(".//plugin[@name='turtlebot3_diff_drive']/robotBaseFrame")[0].text = "base_footprint_realistic"
-        gazebo_robot_model_sdf_root.findall(".//plugin[@name='turtlebot3_diff_drive']/groundTruthParentFrame")[0].text = "odom"
-        gazebo_robot_model_sdf_root.findall(".//plugin[@name='turtlebot3_diff_drive']/groundTruthRobotBaseFrame")[0].text = "base_footprint_gt"
+        gazebo_robot_model_sdf_root.findall(".//sensor[@name='lidar_sensor']/plugin[@name='turtlebot3_laserscan_realistic']/topicName")[0].text = "scan_gt_st"
+        gazebo_robot_model_sdf_root.findall(".//sensor[@name='lidar_sensor']/plugin[@name='turtlebot3_laserscan_realistic']/frameName")[0].text = "base_scan_gt_st"
+        # # gt sensor, for move_base
+        gazebo_robot_model_sdf_root.findall(".//sensor[@name='lidar_sensor_gt']/plugin[@name='turtlebot3_laserscan_gt']/topicName")[0].text = "scan_gt_mb"
+        gazebo_robot_model_sdf_root.findall(".//sensor[@name='lidar_sensor_gt']/plugin[@name='turtlebot3_laserscan_gt']/frameName")[0].text = "base_scan_gt_mb"
+        # ideal odometry, for slam_toolbox
+        gazebo_robot_model_sdf_root.findall(".//plugin[@name='turtlebot3_diff_drive']/odometrySource")[0].text = "world"
+        gazebo_robot_model_sdf_root.findall(".//plugin[@name='turtlebot3_diff_drive']/odometryTopic")[0].text = "odom"
+        gazebo_robot_model_sdf_root.findall(".//plugin[@name='turtlebot3_diff_drive']/odometryFrame")[0].text = "odom_gt_st"
+        gazebo_robot_model_sdf_root.findall(".//plugin[@name='turtlebot3_diff_drive']/robotBaseFrame")[0].text = "base_footprint_gt_st"
+        # gt odometry, for move_base
+        gazebo_robot_model_sdf_root.findall(".//plugin[@name='turtlebot3_diff_drive']/groundTruthParentFrame")[0].text = "odom_gt_mb"
+        gazebo_robot_model_sdf_root.findall(".//plugin[@name='turtlebot3_diff_drive']/groundTruthRobotBaseFrame")[0].text = "base_footprint_gt_mb"
         if not path.exists(path.dirname(gazebo_robot_model_sdf_path)):
             os.makedirs(path.dirname(gazebo_robot_model_sdf_path))
         gazebo_robot_model_sdf_tree.write(gazebo_robot_model_sdf_path)
@@ -139,31 +147,31 @@ class BenchmarkRun(object):
             os.makedirs(path.dirname(gazebo_robot_model_config_path))
         shutil.copyfile(original_gazebo_robot_model_config_path, gazebo_robot_model_config_path)
 
-        # copy the configuration of the robot urdf to the run folder and update the link names for ground truth data
-        robot_gt_urdf_tree = et.parse(original_robot_urdf_path)
-        robot_gt_urdf_root = robot_gt_urdf_tree.getroot()
-        for link_element in robot_gt_urdf_root.findall(".//link"):
-            if link_element.attrib['name'] == "base_link":  # TODO currently (Eloquent) base_link is hardcoded in the navigation stack so it cannot be renamed
-                continue
-            link_element.attrib['name'] = "{}_gt".format(link_element.attrib['name'])
-        for joint_link_element in robot_gt_urdf_root.findall(".//*[@link]"):
-            if joint_link_element.attrib['link'] == "base_link":  # TODO currently (Eloquent) base_link is hardcoded in the navigation stack so it cannot be renamed
-                continue
-            joint_link_element.attrib['link'] = "{}_gt".format(joint_link_element.attrib['link'])
-        if not path.exists(path.dirname(self.robot_gt_urdf_path)):
-            os.makedirs(path.dirname(self.robot_gt_urdf_path))
-        robot_gt_urdf_tree.write(self.robot_gt_urdf_path)
+        # copy the configuration of the robot urdf to the run folder and update the link names for ground truth move_base data
+        robot_gt_mb_urdf_tree = et.parse(original_robot_urdf_path)
+        robot_gt_mb_urdf_root = robot_gt_mb_urdf_tree.getroot()
+        for link_element in robot_gt_mb_urdf_root.findall(".//link"):
+            # if link_element.attrib['name'] == "base_link":
+            #     continue
+            link_element.attrib['name'] = "{}_gt_mb".format(link_element.attrib['name'])
+        for joint_link_element in robot_gt_mb_urdf_root.findall(".//*[@link]"):
+            # if joint_link_element.attrib['link'] == "base_link":
+            #     continue
+            joint_link_element.attrib['link'] = "{}_gt_mb".format(joint_link_element.attrib['link'])
+        if not path.exists(path.dirname(self.robot_gt_mb_urdf_path)):
+            os.makedirs(path.dirname(self.robot_gt_mb_urdf_path))
+        robot_gt_mb_urdf_tree.write(self.robot_gt_mb_urdf_path)
 
-        # copy the configuration of the robot urdf to the run folder and update the link names for realistic data
-        robot_realistic_urdf_tree = et.parse(original_robot_urdf_path)
-        robot_realistic_urdf_root = robot_realistic_urdf_tree.getroot()
-        for link_element in robot_realistic_urdf_root.findall(".//link"):
-            link_element.attrib['name'] = "{}_realistic".format(link_element.attrib['name'])
-        for joint_link_element in robot_realistic_urdf_root.findall(".//*[@link]"):
-            joint_link_element.attrib['link'] = "{}_realistic".format(joint_link_element.attrib['link'])
-        if not path.exists(path.dirname(self.robot_realistic_urdf_path)):
-            os.makedirs(path.dirname(self.robot_realistic_urdf_path))
-        robot_realistic_urdf_tree.write(self.robot_realistic_urdf_path)
+        # copy the configuration of the robot urdf to the run folder and update the link names for ideal slam_toolbox data
+        robot_gt_st_urdf_tree = et.parse(original_robot_urdf_path)
+        robot_gt_st_urdf_root = robot_gt_st_urdf_tree.getroot()
+        for link_element in robot_gt_st_urdf_root.findall(".//link"):
+            link_element.attrib['name'] = "{}_gt_st".format(link_element.attrib['name'])
+        for joint_link_element in robot_gt_st_urdf_root.findall(".//*[@link]"):
+            joint_link_element.attrib['link'] = "{}_gt_st".format(joint_link_element.attrib['link'])
+        if not path.exists(path.dirname(self.robot_gt_st_urdf_path)):
+            os.makedirs(path.dirname(self.robot_gt_st_urdf_path))
+        robot_gt_st_urdf_tree.write(self.robot_gt_st_urdf_path)
 
         # write run info to file
         run_info_dict = dict()
@@ -178,8 +186,8 @@ class BenchmarkRun(object):
             'gazebo_world_model': gazebo_world_model_relative_path,
             'gazebo_robot_model_sdf': gazebo_robot_model_sdf_relative_path,
             'gazebo_robot_model_config': gazebo_robot_model_config_relative_path,
-            'robot_gt_urdf': robot_gt_urdf_relative_path,
-            'robot_realistic_urdf': robot_realistic_urdf_relative_path,
+            'robot_gt_urdf': robot_gt_mb_urdf_relative_path,
+            'robot_realistic_urdf': robot_gt_st_urdf_relative_path,
         }
 
         with open(run_info_file_path, 'w') as run_info_file:
@@ -213,8 +221,8 @@ class BenchmarkRun(object):
         }
         environment_params = {
             'world_model_file': self.gazebo_world_model_path,
-            'robot_gt_urdf_file': self.robot_gt_urdf_path,
-            'robot_realistic_urdf_file': self.robot_realistic_urdf_path,
+            'robot_gt_urdf_file': self.robot_gt_mb_urdf_path,
+            'robot_realistic_urdf_file': self.robot_gt_st_urdf_path,
             'headless': True,
         }
         slam_toolbox_params = {

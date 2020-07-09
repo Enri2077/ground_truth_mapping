@@ -54,6 +54,7 @@ def main():
     finally:
         if node is not None:
             node.end_run()
+        rospy.signal_shutdown("run_terminated")
 
 
 class GroundTruthMappingSupervisor:
@@ -170,7 +171,7 @@ class GroundTruthMappingSupervisor:
             nodes_queue.remove(next_node)
 
         # convert path of nodes to list of poses (as deque so they can be popped)
-        self.traversal_path_poses = deque()
+        self.traversal_path_poses = list()
         for node_index in traversal_path_indices:
             pose = Pose()
             pose.position.x, pose.position.y = voronoi_graph.nodes[node_index]['vertex']
@@ -178,76 +179,35 @@ class GroundTruthMappingSupervisor:
             pose.orientation = Quaternion(w=q.w, x=q.x, y=q.y, z=q.z)
             self.traversal_path_poses.append(pose)
 
-        # publish the traversal path for visualization
-        traversal_path_msg = Path()
-        traversal_path_msg.header.frame_id = self.fixed_frame
-        traversal_path_msg.header.stamp = rospy.Time.now()
-        for traversal_pose in self.traversal_path_poses:
-            traversal_pose_stamped = PoseStamped()
-            traversal_pose_stamped.header = traversal_path_msg.header
-            traversal_pose_stamped.pose = traversal_pose
-            traversal_path_msg.poses.append(traversal_pose_stamped)
-        self.traversal_path_publisher.publish(traversal_path_msg)
+        if len(self.traversal_path_poses) < 2:
+            self.write_event('insufficient_number_of_poses_in_traversal_path')
+            raise RunFailException("insufficient number of poses in traversal path, can not send goal")
 
-        # pop the first pose from traversal_path_poses and set it as initial pose
+        self.publish_traversal_path()
+
+        # set the first pose from traversal_path_poses as initial pose
         self.initial_pose = PoseWithCovarianceStamped()
         self.initial_pose.header.frame_id = self.fixed_frame
         self.initial_pose.header.stamp = rospy.Time.now()
-        self.initial_pose.pose.pose = self.traversal_path_poses.popleft()
+        self.initial_pose.pose.pose = self.traversal_path_poses[0]
         # self.initial_pose.pose.covariance = list(self.initial_pose_covariance_matrix.flat)
 
         self.num_goals = len(self.traversal_path_poses)
 
-        # set the position of the robot in the simulator
-        try:
-            self.pause_physics_service_client.wait_for_service(5.0)
-        except rospy.ROSException:
-            raise RunFailException("pause_physics_service_client unavailable")
-        self.pause_physics_service_client.call()
-        print_info("called pause_physics_service")
-        time.sleep(1.0)
-
-        robot_entity_state = ModelState(
-            model_name=self.robot_entity_name,
-            pose=self.initial_pose.pose.pose
-        )
-        try:
-            self.set_entity_state_service_client.wait_for_service(5.0)
-        except rospy.ROSException:
-            raise RunFailException("set_entity_state_service_client unavailable")
-        set_entity_state_response = self.set_entity_state_service_client.call(robot_entity_state)
-        if not set_entity_state_response.success:
-            self.write_event('failed_to_set_entity_state')
-            raise RunFailException("could not set robot entity state")
-        print_info("called set_entity_state_service")
-        time.sleep(1.0)
-
-        try:
-            self.unpause_physics_service_client.wait_for_service(5.0)
-        except rospy.ROSException:
-            raise RunFailException("unpause_physics_service_client unavailable")
-        self.unpause_physics_service_client.call()
-        print_info("called unpause_physics_service")
-        time.sleep(5.0)
-
         self.write_event('run_start')
 
         # send goals
-        while not rospy.is_shutdown():
+        for traversal_path_pose in self.traversal_path_poses:
             print_info("goal {} / {}".format(self.goal_sent_count + 1, self.num_goals))
 
             if not self.navigate_to_pose_action_client.wait_for_server(timeout=rospy.Duration.from_sec(5.0)):
                 self.write_event('failed_to_communicate_with_navigation_node')
                 raise RunFailException("navigate_to_pose action server not available")
 
-            if len(self.traversal_path_poses) == 0:
-                self.write_event('insufficient_number_of_poses_in_traversal_path')
-                raise RunFailException("insufficient number of poses in traversal path, can not send goal")
-
             goal_msg = MoveBaseGoal()
             goal_msg.target_pose.header.stamp = rospy.Time.now()
             goal_msg.target_pose.header.frame_id = self.fixed_frame
-            goal_msg.target_pose.pose = self.traversal_path_poses.popleft()
+            goal_msg.target_pose.pose = traversal_path_pose
 
             self.navigate_to_pose_action_client.send_goal(goal_msg)
             self.write_event('target_pose_set')
@@ -273,15 +233,27 @@ class GroundTruthMappingSupervisor:
                 print_info('navigation action failed with status {}, {}'.format(self.navigate_to_pose_action_client.get_state(), self.navigate_to_pose_action_client.get_goal_status_text()))
                 self.write_event('target_pose_not_reached')
                 self.goal_failed_count += 1
-
-            # if all goals have been sent end the run, otherwise send the next goal
-            if len(self.traversal_path_poses) == 0:
-                self.write_event('run_completed')
-                self.save_map()
-                rospy.signal_shutdown("run_completed")
-                return
+                if self.goal_failed_count < 10:
+                    self.traversal_path_poses.append(traversal_path_pose)
+                    self.publish_traversal_path()
 
             rospy.sleep(1.0)
+
+        # if all goals have been sent end the run
+        self.write_event('run_completed')
+        self.save_map()
+        rospy.signal_shutdown("run_completed")
+
+    def publish_traversal_path(self):
+        traversal_path_msg = Path()
+        traversal_path_msg.header.frame_id = self.fixed_frame
+        traversal_path_msg.header.stamp = rospy.Time.now()
+        for traversal_pose in self.traversal_path_poses:
+            traversal_pose_stamped = PoseStamped()
+            traversal_pose_stamped.header = traversal_path_msg.header
+            traversal_pose_stamped.pose = traversal_pose
+            traversal_path_msg.poses.append(traversal_pose_stamped)
+        self.traversal_path_publisher.publish(traversal_path_msg)
 
     def ros_shutdown_callback(self):
         """

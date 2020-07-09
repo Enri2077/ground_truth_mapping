@@ -10,6 +10,25 @@
           respawn="true"
           output="$(arg output)" >
         <rosparam file="$(arg params_file)" />
+        <remap from="/odom" to="/odom_gt_mb"/>
     </node>
+
+    <node name="map_odom_gt_mb_static_transform_publisher"
+        pkg="tf2_ros"
+        type="static_transform_publisher"
+        output="$(arg output)"
+        args="0 0 0  0 0 0  map odom_gt_mb"/>
+
+    <node name="odom_gt_mb_odom_static_transform_publisher"
+        pkg="tf2_ros"
+        type="static_transform_publisher"
+        output="$(arg output)"
+        args="0 0 0  0 0 0  odom_gt_mb odom"/>
+
+    <node name="base_link_gt_mb_base_link_static_transform_publisher"
+        pkg="tf2_ros"
+        type="static_transform_publisher"
+        output="$(arg output)"
+        args="0 0 0  0 0 0  base_link_gt_mb base_link"/>
 
 </launch>

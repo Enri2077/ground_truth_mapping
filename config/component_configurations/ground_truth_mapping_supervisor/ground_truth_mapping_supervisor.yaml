@@ -7,7 +7,7 @@ waypoint_timeout: 600
 robot_radius: 0.2
 
 # topic names
-scan_topic: /scan_gt
+scan_topic: /scan_gt_mb
 ground_truth_pose_topic: /base_footprint_gt
 initial_pose_topic: /initialpose
 
