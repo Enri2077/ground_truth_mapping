@@ -38,7 +38,7 @@ if __name__ == '__main__':
                         default=1,
                         required=False)
 
-    parser.add_argument('-g', '--headless', dest='headless',
+    parser.add_argument('--gui', dest='gui',
                         help='When set the components are run with no GUI.',
                         action='store_true',
                         required=False)
@@ -58,5 +58,5 @@ if __name__ == '__main__':
                            environment_folders=environment_folders,
                            base_run_folder=base_run_folder,
                            num_runs=args.num_runs,
-                           headless=args.headless,
+                           headless=not args.gui,
                            show_ros_info=args.show_ros_info)
