@@ -1,5 +1,5 @@
 components_configurations_folder: ~/w/catkin_ws/src/ground_truth_mapping/config/component_configurations
-gazebo_model_path_env_var: [~/w/catkin_ws/src/turtlebot3_simulations/turtlebot3_gazebo/models/]
+gazebo_model_path_env_var: []
 gazebo_plugin_path_env_var: [~/w/catkin_ws/build/gazebo_plugins/]
 
 components_configuration:
