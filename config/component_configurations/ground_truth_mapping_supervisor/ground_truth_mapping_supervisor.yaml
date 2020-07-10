@@ -9,12 +9,8 @@ robot_radius: 0.2
 # topic names
 scan_topic: /scan_gt_mb
 ground_truth_pose_topic: /base_footprint_gt
-initial_pose_topic: /initialpose
 
 # service names
-pause_physics_service: /gazebo/pause_physics
-unpause_physics_service: /gazebo/unpause_physics
-set_entity_state_service: /gazebo/set_model_state
 save_map_service: /slam_toolbox/save_map
 serialize_map_service: /slam_toolbox/serialize_map
 
@@ -24,6 +20,3 @@ navigate_to_pose_action: /move_base
 # frame names
 fixed_frame: map
 robot_base_frame: base_link
-
-# gazebo entity names
-robot_entity_name: robot

@@ -4,7 +4,7 @@
 import random
 import time
 import traceback
-from collections import defaultdict, deque
+from collections import defaultdict
 import os
 from os import path
 import networkx as nx
@@ -14,9 +14,7 @@ import pyquaternion
 import rospy
 from actionlib import SimpleActionClient
 from actionlib_msgs.msg import GoalStatus
-from gazebo_msgs.msg import ModelState
-from gazebo_msgs.srv import SetModelState
-from geometry_msgs.msg import Pose, Quaternion, PoseStamped, PoseWithCovarianceStamped
+from geometry_msgs.msg import Pose, Quaternion, PoseStamped
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry, Path
@@ -26,7 +24,6 @@ from performance_modelling_py.environment import ground_truth_map
 from performance_modelling_py.utils import backup_file_if_exists, print_info, print_error
 from slam_toolbox_msgs.srv import SaveMapRequest, SerializePoseGraphRequest
 from std_msgs.msg import String
-from std_srvs.srv import Empty
 
 
 class RunFailException(Exception):
@@ -54,7 +51,9 @@ def main():
     finally:
         if node is not None:
             node.end_run()
-        rospy.signal_shutdown("run_terminated")
+        if not rospy.is_shutdown():
+            print_info("calling rospy signal_shutdown")
+            rospy.signal_shutdown("run_terminated")
 
 
 class GroundTruthMappingSupervisor:
@@ -65,12 +64,8 @@ class GroundTruthMappingSupervisor:
         ground_truth_pose_topic = rospy.get_param('~ground_truth_pose_topic')
         save_map_service = rospy.get_param('~save_map_service')
         serialize_map_service = rospy.get_param('~serialize_map_service')
-        pause_physics_service = rospy.get_param('~pause_physics_service')
-        unpause_physics_service = rospy.get_param('~unpause_physics_service')
-        set_entity_state_service = rospy.get_param('~set_entity_state_service')
         navigate_to_pose_action = rospy.get_param('~navigate_to_pose_action')
         self.fixed_frame = rospy.get_param('~fixed_frame')
-        self.robot_entity_name = rospy.get_param('~robot_entity_name')
 
         # file system paths
         self.run_output_folder = rospy.get_param('~run_output_folder')
@@ -95,7 +90,6 @@ class GroundTruthMappingSupervisor:
         self.goal_succeeded_count = 0
         self.goal_failed_count = 0
         self.goal_rejected_count = 0
-        self.initial_pose = None
 
         # prepare folder structure
         if not path.exists(self.benchmark_data_folder):
@@ -111,9 +105,6 @@ class GroundTruthMappingSupervisor:
         # setup service clients
         self.save_map_service_client = rospy.ServiceProxy(save_map_service, SaveMap)
         self.serialize_map_client = rospy.ServiceProxy(serialize_map_service, SerializePoseGraph)
-        self.pause_physics_service_client = rospy.ServiceProxy(pause_physics_service, Empty)
-        self.unpause_physics_service_client = rospy.ServiceProxy(unpause_physics_service, Empty)
-        self.set_entity_state_service_client = rospy.ServiceProxy(set_entity_state_service, SetModelState)
 
         # setup publishers
         self.traversal_path_publisher = rospy.Publisher("~/traversal_path", Path, queue_size=1)
@@ -185,13 +176,6 @@ class GroundTruthMappingSupervisor:
 
         self.publish_traversal_path()
 
-        # set the first pose from traversal_path_poses as initial pose
-        self.initial_pose = PoseWithCovarianceStamped()
-        self.initial_pose.header.frame_id = self.fixed_frame
-        self.initial_pose.header.stamp = rospy.Time.now()
-        self.initial_pose.pose.pose = self.traversal_path_poses[0]
-        # self.initial_pose.pose.covariance = list(self.initial_pose_covariance_matrix.flat)
-
         self.num_goals = len(self.traversal_path_poses)
 
         self.write_event('run_start')
@@ -199,6 +183,9 @@ class GroundTruthMappingSupervisor:
         # send goals
         for traversal_path_pose in self.traversal_path_poses:
             print_info("goal {} / {}".format(self.goal_sent_count + 1, self.num_goals))
+
+            if rospy.is_shutdown():
+                break
 
             if not self.navigate_to_pose_action_client.wait_for_server(timeout=rospy.Duration.from_sec(5.0)):
                 self.write_event('failed_to_communicate_with_navigation_node')
@@ -268,7 +255,7 @@ class GroundTruthMappingSupervisor:
         This function is called after the run has completed, whether the run finished correctly, or there was an exception.
         The only case in which this function is not called is if an exception was raised from self.__init__
         """
-        pass
+        print_info("end_run: nothing to do")
 
     def save_map(self):
         print_info("sending save map request")
