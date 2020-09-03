@@ -34,7 +34,8 @@ class BenchmarkRun(object):
         laser_scan_fov_deg = self.run_parameters['laser_scan_fov_deg']
         laser_scan_fov_rad = laser_scan_fov_deg*np.pi/180
         map_resolution = self.run_parameters['map_resolution']
-        self.run_output_folder = path.join(run_output_folder, "res_{res}_fov_{fov}_max_range_{max_range}".format(res=map_resolution, fov=laser_scan_fov_deg, max_range=laser_scan_max_range))
+        self.run_output_folder = path.join(environment_folder, "data", "realistic_map", "res_{res}_fov_{fov}_max_range_{max_range}".format(res=map_resolution, fov=laser_scan_fov_deg, max_range=laser_scan_max_range))
+        backup_file_if_exists(self.run_output_folder)  # backup data to avoid overwriting previous maps, since we are saving the data to the dataset
 
         self.gazebo_model_path_env_var = ":".join(map(
             lambda p: path.expanduser(p),
@@ -62,7 +63,7 @@ class BenchmarkRun(object):
         original_supervisor_configuration_path = path.join(components_configurations_folder, self.benchmark_configuration['components_configuration']['supervisor'])
         original_slam_toolbox_configuration_path = path.join(components_configurations_folder, self.benchmark_configuration['components_configuration']['slam_toolbox'])
         original_move_base_configuration_path = path.join(components_configurations_folder, self.benchmark_configuration['components_configuration']['move_base'])
-        self.original_rviz_configuration_path = path.join(components_configurations_folder, self.benchmark_configuration['components_configuration']['rviz'])
+        # self.original_rviz_configuration_path = path.join(components_configurations_folder, self.benchmark_configuration['components_configuration']['rviz'])
         original_gazebo_world_model_path = path.join(environment_folder, "gazebo", "gazebo_environment.model")
         original_gazebo_robot_model_config_path = path.join(environment_folder, "gazebo", "robot", "model.config")
         original_gazebo_robot_model_sdf_path = path.join(environment_folder, "gazebo", "robot", "model.sdf")
@@ -218,7 +219,6 @@ class BenchmarkRun(object):
 
         # components parameters
         rviz_params = {
-            # TODO 'rviz_config_file': self.original_rviz_configuration_path,
             'headless': self.headless,
         }
         ground_truth_map_server_params = {
@@ -239,12 +239,17 @@ class BenchmarkRun(object):
         supervisor_params = {
             'params_file': self.supervisor_configuration_path,
         }
+        recorder_benchmark_data_params = {
+            'bag_file_path': path.join(self.run_output_folder, "benchmark_data.bag"),
+            'topics': "/base_footprint_gt /cmd_vel /initialpose /map_gt /map_gt_metadata /map_gt_updates /map /map_metadata /map_updates /odom /particlecloud /gmapping/entropy /rosout /rosout_agg /scan /scan_gt /tf /tf_static /traversal_path",
+        }
 
         # declare components
         roscore = Component('roscore', 'ground_truth_mapping', 'roscore.launch')
         environment = Component('gazebo', 'ground_truth_mapping', 'gazebo.launch', environment_params)
         ground_truth_map_server = Component('ground_truth_map_server', 'ground_truth_mapping', 'ground_truth_map_server.launch', ground_truth_map_server_params)
         rviz = Component('rviz', 'ground_truth_mapping', 'rviz.launch', rviz_params)
+        recorder_benchmark_data = Component('recorder_sensor_data', 'ground_truth_mapping', 'rosbag_recorder.launch', recorder_benchmark_data_params)
         slam_toolbox = Component('slam_toolbox', 'ground_truth_mapping', 'slam_toolbox.launch', slam_toolbox_params)
         navigation = Component('move_base', 'ground_truth_mapping', 'move_base.launch', navigation_params)
         supervisor = Component('supervisor', 'ground_truth_mapping', 'ground_truth_mapping_supervisor.launch', supervisor_params)
@@ -258,6 +263,7 @@ class BenchmarkRun(object):
         environment.launch()
         ground_truth_map_server.launch()
         rviz.launch()
+        recorder_benchmark_data.launch()
         slam_toolbox.launch()
         navigation.launch()
         supervisor.launch()
@@ -271,6 +277,7 @@ class BenchmarkRun(object):
         # shut down components
         navigation.shutdown()
         slam_toolbox.shutdown()
+        recorder_benchmark_data.shutdown()
         rviz.shutdown()
         ground_truth_map_server.shutdown()
         environment.shutdown()
