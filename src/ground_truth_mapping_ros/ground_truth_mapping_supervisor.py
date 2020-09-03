@@ -6,12 +6,14 @@ import time
 import traceback
 from collections import defaultdict
 import os
+import copy
 from os import path
 import networkx as nx
 import numpy as np
 import pyquaternion
 
 import rospy
+import tf2_ros
 from actionlib import SimpleActionClient
 from actionlib_msgs.msg import GoalStatus
 from geometry_msgs.msg import Pose, Quaternion, PoseStamped
@@ -66,13 +68,16 @@ class GroundTruthMappingSupervisor:
         serialize_map_service = rospy.get_param('~serialize_map_service')
         navigate_to_pose_action = rospy.get_param('~navigate_to_pose_action')
         self.fixed_frame = rospy.get_param('~fixed_frame')
+        self.mapper_odom_frame = rospy.get_param('~mapper_odom_frame')
+        self.gt_base_frame = rospy.get_param('~gt_base_frame')
+        self.mapper_base_frame = rospy.get_param('~mapper_base_frame')
 
         # file system paths
         self.run_output_folder = rospy.get_param('~run_output_folder')
         self.benchmark_data_folder = path.join(self.run_output_folder, "benchmark_data")
         self.ground_truth_map_info_path = rospy.get_param('~ground_truth_map_info_path')
-        self.output_map_file_path = rospy.get_param('~output_map_file_path')  # path.join(self.benchmark_data_folder, "map")
-        self.output_pose_graph_file_path = rospy.get_param('~output_pose_graph_file_path')  # path.join(self.benchmark_data_folder, "slam_toolbox_pose_graph")
+        self.output_map_file_path = rospy.get_param('~output_map_file_path')
+        self.output_pose_graph_file_path = rospy.get_param('~output_pose_graph_file_path')
 
         # run parameters
         run_timeout = rospy.get_param('~run_timeout')
@@ -101,10 +106,15 @@ class GroundTruthMappingSupervisor:
 
         # setup timers
         rospy.Timer(rospy.Duration.from_sec(run_timeout), self.run_timeout_callback)
+        rospy.Timer(rospy.Duration.from_sec(5.0), self.odom_error_timer_callback)
 
         # setup service clients
         self.save_map_service_client = rospy.ServiceProxy(save_map_service, SaveMap)
         self.serialize_map_client = rospy.ServiceProxy(serialize_map_service, SerializePoseGraph)
+
+        # setup buffers
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
 
         # setup publishers
         self.traversal_path_publisher = rospy.Publisher("~/traversal_path", Path, queue_size=1)
@@ -161,7 +171,7 @@ class GroundTruthMappingSupervisor:
             current_node = next_node
             nodes_queue.remove(next_node)
 
-        # convert path of nodes to list of poses (as deque so they can be popped)
+        # convert path of nodes to list of poses
         self.traversal_path_poses = list()
         for node_index in traversal_path_indices:
             pose = Pose()
@@ -169,6 +179,13 @@ class GroundTruthMappingSupervisor:
             q = pyquaternion.Quaternion(axis=[0, 0, 1], radians=np.random.uniform(-np.pi, np.pi))
             pose.orientation = Quaternion(w=q.w, x=q.x, y=q.y, z=q.z)
             self.traversal_path_poses.append(pose)
+
+        # add the reversed path to make sure all parts of the map are visited in both directions
+        reversed_traversal_path_poses = copy.deepcopy(self.traversal_path_poses[::-1])
+        for pose in reversed_traversal_path_poses:
+            q = pyquaternion.Quaternion(axis=[0, 0, 1], radians=np.random.uniform(-np.pi, np.pi))
+            pose.orientation = Quaternion(w=q.w, x=q.x, y=q.y, z=q.z)
+        self.traversal_path_poses += reversed_traversal_path_poses
 
         if len(self.traversal_path_poses) < 2:
             self.write_event('insufficient_number_of_poses_in_traversal_path')
@@ -250,7 +267,8 @@ class GroundTruthMappingSupervisor:
         self.write_event('ros_shutdown')
         self.write_event('supervisor_finished')
 
-    def end_run(self):
+    @staticmethod
+    def end_run():
         """
         This function is called after the run has completed, whether the run finished correctly, or there was an exception.
         The only case in which this function is not called is if an exception was raised from self.__init__
@@ -269,6 +287,24 @@ class GroundTruthMappingSupervisor:
         self.write_event('supervisor_finished')
         raise RunFailException("run_timeout")
 
+    def odom_error_timer_callback(self, _):
+        # noinspection PyBroadException
+        try:
+            transform_msg = self.tf_buffer.lookup_transform(self.gt_base_frame, self.mapper_base_frame, rospy.Time())
+            x, y = transform_msg.transform.translation.x, transform_msg.transform.translation.y
+            orientation = transform_msg.transform.rotation
+            theta, _, _ = pyquaternion.Quaternion(x=orientation.x, y=orientation.y, z=orientation.z, w=orientation.w).yaw_pitch_roll
+
+            r = self.ground_truth_map.resolution/2
+            if x > r or y > r or theta > 0.01:
+                print_error("map distortion error: x={x:0.4f}, y={y:0.4f}, theta={theta:0.4f}".format(x=x, y=y, theta=theta))
+            else:
+                print("map distortion error: x={x:0.4f}, y={y:0.4f}, theta={theta:0.4f}".format(x=x, y=y, theta=theta))
+
+        # except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException):
+        except:
+            print_error(traceback.format_exc())
+
     def scan_callback(self, _):
         self.received_first_scan = True
 
@@ -281,7 +317,7 @@ class GroundTruthMappingSupervisor:
             with open(self.run_events_file_path, 'w') as run_events_file:
                 run_events_file.write("{t}, {event}\n".format(t='timestamp', event='event'))
         except IOError:
-            rospy.logerr("slam_benchmark_supervisor.init_event_file: could not write header to run_events_file")
+            rospy.logerr("ground_truth_mapping_supervisor.init_event_file: could not write header to run_events_file")
             rospy.logerr(traceback.format_exc())
 
     def write_event(self, event):
@@ -291,5 +327,5 @@ class GroundTruthMappingSupervisor:
             with open(self.run_events_file_path, 'a') as run_events_file:
                 run_events_file.write("{t}, {event}\n".format(t=t, event=str(event)))
         except IOError:
-            rospy.logerr("slam_benchmark_supervisor.write_event: could not write event to run_events_file: {t} {event}".format(t=t, event=str(event)))
+            rospy.logerr("ground_truth_mapping_supervisor.write_event: could not write event to run_events_file: {t} {event}".format(t=t, event=str(event)))
             rospy.logerr(traceback.format_exc())

@@ -19,4 +19,7 @@ navigate_to_pose_action: /move_base
 
 # frame names
 fixed_frame: map
-robot_base_frame: base_link
+mapper_odom_frame: odom_gt_st
+robot_base_frame: base_link_gt_st
+gt_base_frame: base_footprint_gt_mb
+mapper_base_frame: base_footprint_gt_st
