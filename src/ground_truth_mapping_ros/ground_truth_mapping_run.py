@@ -32,14 +32,18 @@ class BenchmarkRun(object):
         self.map_info_file_path = path.join(environment_folder, "data", "map.yaml")
         laser_scan_max_range = self.run_parameters['laser_scan_max_range']
         laser_scan_fov_deg = self.run_parameters['laser_scan_fov_deg']
-        laser_scan_fov_rad = laser_scan_fov_deg*np.pi/180
+        laser_scan_fov_rad = (laser_scan_fov_deg-1)*np.pi/180
         map_resolution = self.run_parameters['map_resolution']
-        self.run_output_folder = path.join(environment_folder, "data", "realistic_map", "res_{res}_fov_{fov}_max_range_{max_range}".format(res=map_resolution, fov=laser_scan_fov_deg, max_range=laser_scan_max_range))
+        self.run_output_folder = path.join(environment_folder, "data", "realistic_map", "res_{res}_fov_{fov}_max_range_{max_range}_no_scan_matching".format(res=map_resolution, fov=laser_scan_fov_deg, max_range=laser_scan_max_range))
         backup_file_if_exists(self.run_output_folder)  # backup data to avoid overwriting previous maps, since we are saving the data to the dataset
 
         self.gazebo_model_path_env_var = ":".join(map(
             lambda p: path.expanduser(p),
             self.benchmark_configuration['gazebo_model_path_env_var'] + [path.dirname(path.abspath(self.environment_folder)), self.run_output_folder]
+        ))
+        self.gazebo_resource_path_env_var = ":".join(map(
+            lambda p: path.expanduser(p),
+            self.benchmark_configuration['gazebo_resource_path_env_var']
         ))
         self.gazebo_plugin_path_env_var = ":".join(map(
             lambda p: path.expanduser(p),
@@ -133,7 +137,7 @@ class BenchmarkRun(object):
         gazebo_robot_model_sdf_root.findall(".//sensor[@name='lidar_sensor']/ray/range/max")[0].text = str(float(laser_scan_max_range))
         gazebo_robot_model_sdf_root.findall(".//sensor[@name='lidar_sensor']/plugin[@name='turtlebot3_laserscan_realistic']/topicName")[0].text = "scan_gt_st"
         gazebo_robot_model_sdf_root.findall(".//sensor[@name='lidar_sensor']/plugin[@name='turtlebot3_laserscan_realistic']/frameName")[0].text = "base_scan_gt_st"
-        # # gt sensor, for move_base
+        # gt sensor, for move_base
         gazebo_robot_model_sdf_root.findall(".//sensor[@name='lidar_sensor_gt']/plugin[@name='turtlebot3_laserscan_gt']/topicName")[0].text = "scan_gt_mb"
         gazebo_robot_model_sdf_root.findall(".//sensor[@name='lidar_sensor_gt']/plugin[@name='turtlebot3_laserscan_gt']/frameName")[0].text = "base_scan_gt_mb"
         # ideal odometry, for slam_toolbox
@@ -256,6 +260,7 @@ class BenchmarkRun(object):
 
         # set gazebo's environment variables
         os.environ['GAZEBO_MODEL_PATH'] = self.gazebo_model_path_env_var
+        os.environ['GAZEBO_RESOURCE_PATH'] = self.gazebo_resource_path_env_var
         os.environ['GAZEBO_PLUGIN_PATH'] = self.gazebo_plugin_path_env_var
 
         # launch components
