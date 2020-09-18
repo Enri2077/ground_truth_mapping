@@ -81,7 +81,7 @@ class GroundTruthMappingSupervisor:
         self.output_pose_graph_file_path = rospy.get_param('~output_pose_graph_file_path')
 
         # run parameters
-        run_timeout = rospy.get_param('~run_timeout')
+        # run_timeout = rospy.get_param('~run_timeout')
         self.waypoint_timeout = rospy.get_param('~waypoint_timeout')
         self.ground_truth_map = ground_truth_map.GroundTruthMap(self.ground_truth_map_info_path)
         self.goal_tolerance = rospy.get_param('~goal_tolerance')
