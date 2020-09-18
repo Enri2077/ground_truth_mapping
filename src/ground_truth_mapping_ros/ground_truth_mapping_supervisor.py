@@ -4,6 +4,7 @@
 import random
 import time
 import traceback
+import yaml
 from collections import defaultdict
 import os
 import copy
@@ -16,7 +17,7 @@ import rospy
 import tf2_ros
 from actionlib import SimpleActionClient
 from actionlib_msgs.msg import GoalStatus
-from geometry_msgs.msg import Pose, Quaternion, PoseStamped
+from geometry_msgs.msg import Pose, Quaternion, PoseStamped, Pose2D
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry, Path
@@ -95,6 +96,7 @@ class GroundTruthMappingSupervisor:
         self.goal_succeeded_count = 0
         self.goal_failed_count = 0
         self.goal_rejected_count = 0
+        self.max_error = Pose2D()
 
         # prepare folder structure
         if not path.exists(self.benchmark_data_folder):
@@ -105,7 +107,7 @@ class GroundTruthMappingSupervisor:
         self.init_run_events_file()
 
         # setup timers
-        rospy.Timer(rospy.Duration.from_sec(run_timeout), self.run_timeout_callback)
+        # rospy.Timer(rospy.Duration.from_sec(run_timeout), self.run_timeout_callback)
         rospy.Timer(rospy.Duration.from_sec(5.0), self.odom_error_timer_callback)
 
         # setup service clients
@@ -267,13 +269,18 @@ class GroundTruthMappingSupervisor:
         self.write_event('ros_shutdown')
         self.write_event('supervisor_finished')
 
-    @staticmethod
-    def end_run():
+    def end_run(self):
         """
         This function is called after the run has completed, whether the run finished correctly, or there was an exception.
         The only case in which this function is not called is if an exception was raised from self.__init__
         """
-        print_info("end_run: nothing to do")
+        print_info("end_run")
+        with open(path.join(self.benchmark_data_folder, "max_map_distortion_error.yaml"), 'w') as f:
+            yaml.dump({
+                'x': float(self.max_error.x),
+                'y': float(self.max_error.y),
+                'theta': float(self.max_error.theta),
+            }, f)
 
     def save_map(self):
         print_info("sending save map request")
@@ -281,11 +288,11 @@ class GroundTruthMappingSupervisor:
         self.serialize_map_client.call(SerializePoseGraphRequest(filename=self.output_pose_graph_file_path))
         self.write_event('save_map_request_sent')
 
-    def run_timeout_callback(self, _):
-        print_error("terminating supervisor due to timeout, terminating run")
-        self.write_event('run_timeout')
-        self.write_event('supervisor_finished')
-        raise RunFailException("run_timeout")
+    # def run_timeout_callback(self, _):
+    #     print_error("terminating supervisor due to timeout, terminating run")
+    #     self.write_event('run_timeout')
+    #     self.write_event('supervisor_finished')
+    #     raise RunFailException("run_timeout")
 
     def odom_error_timer_callback(self, _):
         # noinspection PyBroadException
@@ -295,11 +302,15 @@ class GroundTruthMappingSupervisor:
             orientation = transform_msg.transform.rotation
             theta, _, _ = pyquaternion.Quaternion(x=orientation.x, y=orientation.y, z=orientation.z, w=orientation.w).yaw_pitch_roll
 
+            self.max_error.x = max(self.max_error.x, x)
+            self.max_error.y = max(self.max_error.y, y)
+            self.max_error.theta = max(self.max_error.theta, theta)
+
             r = self.ground_truth_map.resolution/2
             if x > r or y > r or theta > 0.01:
                 print_error("map distortion error: x={x:0.4f}, y={y:0.4f}, theta={theta:0.4f}".format(x=x, y=y, theta=theta))
-            else:
-                print("map distortion error: x={x:0.4f}, y={y:0.4f}, theta={theta:0.4f}".format(x=x, y=y, theta=theta))
+            # else:
+            #     print("map distortion error: x={x:0.4f}, y={y:0.4f}, theta={theta:0.4f}".format(x=x, y=y, theta=theta))
 
         # except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException):
         except:

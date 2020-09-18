@@ -2,7 +2,7 @@
 initial_pose_std_xy: 0.2
 initial_pose_std_theta: 0.2617
 goal_tolerance: 0.4
-run_timeout: 3000.0
+# run_timeout: 10000.0
 waypoint_timeout: 600
 robot_radius: 0.2
 
